@@ -6,10 +6,12 @@
 
 import json
 import random
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+LOG_DIR = Path(__file__).resolve().parent.parent / "learning_log"
 MAX_RESULTS = 3
 
 
@@ -97,3 +99,15 @@ def make_quiz(lecture: int) -> str:
         },
         ensure_ascii=False,
     )
+
+def save_learning_log(content: str) -> str:
+    """時刻入りのファイル名で学習ログを保存する。
+
+    「学習ログに記録して」のように、学習の進捗や感想を残すときに使う。
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    log_path = LOG_DIR / f"learning_log_{timestamp}.txt"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(content + "\n")
+    return f"学習ログに記録しました: {log_path}"

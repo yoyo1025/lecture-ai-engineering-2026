@@ -5,11 +5,17 @@ TestModel は実際のLLMを呼ばない偽モデルで、登録されたツー�
 「ツールが登録され、呼ばれ、結果がモデルに戻るか」を確かめられる。
 """
 
+import importlib
+import re
+
 from pydantic_ai import DeferredToolRequests
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from pydantic_ai.models.test import TestModel
 
 from app.agent import agent
+from app import tools
+
+agent_module = importlib.import_module("app.agent")
 
 BASE_TOOLS = {"search_glossary", "get_lecture_summary", "make_quiz"}
 
@@ -40,3 +46,38 @@ def test_glossary_result_reaches_the_model():
         result = agent.run_sync("RAGとは？")
     returns = _parts(result, ToolReturnPart)
     assert returns and returns[0].tool_name == "search_glossary"
+
+
+def test_cli_approval_saves_learning_log(tmp_path, monkeypatch, capsys):
+    prompts = []
+    monkeypatch.setattr(tools, "LOG_DIR", tmp_path / "learning_log")
+    monkeypatch.setattr(agent_module, "build_model", iter([
+        TestModel(call_tools=["save_learning_log"]),
+        TestModel(call_tools=[]),
+    ]).__next__)
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "y")
+    monkeypatch.setattr("sys.argv", ["app.agent", "学んだことを記録して"])
+
+    agent_module.main()
+
+    log_files = list((tmp_path / "learning_log").glob("learning_log_*.txt"))
+    assert len(log_files) == 1
+    log_path = log_files[0]
+    assert re.fullmatch(r"learning_log_\d{8}_\d{6}_\d{6}\.txt", log_path.name)
+    assert log_path.read_text(encoding="utf-8") == "a\n"
+    assert prompts == ["実行を許可しますか？ [y/N]: "]
+    assert "実行が承認待ちです" in capsys.readouterr().out
+
+
+def test_cli_denial_does_not_save_learning_log(tmp_path, monkeypatch):
+    monkeypatch.setattr(tools, "LOG_DIR", tmp_path / "learning_log")
+    monkeypatch.setattr(agent_module, "build_model", iter([
+        TestModel(call_tools=["save_learning_log"]),
+        TestModel(call_tools=[]),
+    ]).__next__)
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+    monkeypatch.setattr("sys.argv", ["app.agent", "学んだことを記録して"])
+
+    agent_module.main()
+
+    assert not (tmp_path / "learning_log").exists()
